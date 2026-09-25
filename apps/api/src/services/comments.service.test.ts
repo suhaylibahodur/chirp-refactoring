@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { createTestComment, createTestPost, createTestUser } from "../../tests/helpers";
+import {
+	createTestComment,
+	createTestCommentLike,
+	createTestPost,
+	createTestUser,
+} from "../../tests/helpers";
+import { countQueries } from "../../tests/query-counter";
 import { createComment, deleteComment, getPostComments } from "./comments.service";
 
 describe("CommentsService", () => {
@@ -127,6 +133,43 @@ describe("CommentsService", () => {
 			expect(comments).toHaveLength(1);
 			expect(comments[0].replies).toHaveLength(1);
 			expect(comments[0].replies[0].content).toBe("Reply 1");
+			expect(comments[0].replies[0].replies).toEqual([]);
+		});
+
+		it("reflects like counts and viewer isLiked on comments and replies", async () => {
+			const user = await createTestUser();
+			const viewer = await createTestUser();
+			const postId = await createTestPost(user.id, "Test post");
+			const parentId = await createTestComment(postId, user.id, "Parent");
+			const { commentId: replyId } = await createComment({
+				postId,
+				content: "Reply",
+				authorId: user.id,
+				parentId,
+			});
+			await createTestCommentLike(viewer.id, parentId);
+			await createTestCommentLike(viewer.id, replyId);
+
+			const [comment] = await getPostComments(postId, viewer.id);
+			expect(comment).toMatchObject({ likeCount: 1, isLiked: true });
+			expect(comment.replies[0]).toMatchObject({ likeCount: 1, isLiked: true });
+		});
+
+		it("runs a constant number of queries regardless of comment/reply count", async () => {
+			const user = await createTestUser();
+			const postId = await createTestPost(user.id, "Test post");
+			const parentId = await createTestComment(postId, user.id, "Parent");
+			await createComment({ postId, content: "r1", authorId: user.id, parentId });
+			const { queries: few } = await countQueries(() => getPostComments(postId, user.id));
+
+			for (let i = 0; i < 10; i++) {
+				const pid = await createTestComment(postId, user.id, `top ${i}`);
+				await createComment({ postId, content: `reply ${i}`, authorId: user.id, parentId: pid });
+			}
+			const { queries: many } = await countQueries(() => getPostComments(postId, user.id));
+
+			expect(few).toBe(many);
+			expect(many).toBeLessThanOrEqual(4); // 1 top-level + 1 replies + 2 like-info batches
 		});
 	});
 
