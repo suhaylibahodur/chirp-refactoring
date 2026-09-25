@@ -1,4 +1,5 @@
 import type { IBookmarksService } from "@chirp/proto";
+import { errorFields, logSwallowed } from "../../errors/handler-errors";
 import { validateSessionToken } from "../../middleware/auth";
 import {
 	getBookmarkedPosts,
@@ -6,8 +7,9 @@ import {
 	toggleBookmark,
 } from "../../services/bookmarks.service";
 import { toProtoTimestamp } from "../../services/utils";
+import { wrapHandler } from "../wrap";
 
-export const bookmarksHandler: IBookmarksService = {
+const bookmarksService: IBookmarksService = {
 	async toggleBookmark(request) {
 		try {
 			const auth = validateSessionToken(request.sessionToken);
@@ -21,7 +23,7 @@ export const bookmarksHandler: IBookmarksService = {
 			return {
 				success: false,
 				bookmarked: false,
-				error: error instanceof Error ? error.message : "Failed to toggle bookmark",
+				...errorFields(error, "Failed to toggle bookmark"),
 			};
 		}
 	},
@@ -32,7 +34,8 @@ export const bookmarksHandler: IBookmarksService = {
 			const result = await getBookmarkStatus(request.postId, auth.userId);
 
 			return { bookmarked: result.bookmarked };
-		} catch {
+		} catch (error) {
+			logSwallowed(error);
 			return { bookmarked: false };
 		}
 	},
@@ -66,8 +69,11 @@ export const bookmarksHandler: IBookmarksService = {
 					isLiked: post.isLiked,
 				})),
 			};
-		} catch {
+		} catch (error) {
+			logSwallowed(error);
 			return { posts: [] };
 		}
 	},
 };
+
+export const bookmarksHandler = wrapHandler("BookmarksService", bookmarksService);

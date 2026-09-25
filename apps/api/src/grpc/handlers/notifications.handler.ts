@@ -1,4 +1,5 @@
 import type { INotificationsService } from "@chirp/proto";
+import { errorFields, logSwallowed } from "../../errors/handler-errors";
 import { validateSessionToken } from "../../middleware/auth";
 import {
 	deleteNotification,
@@ -8,8 +9,9 @@ import {
 	markAsRead,
 } from "../../services/notifications.service";
 import { toProtoTimestamp } from "../../services/utils";
+import { wrapHandler } from "../wrap";
 
-export const notificationsHandler: INotificationsService = {
+const notificationsService: INotificationsService = {
 	async getNotifications(request) {
 		try {
 			const auth = validateSessionToken(request.sessionToken);
@@ -39,7 +41,8 @@ export const notificationsHandler: INotificationsService = {
 					createdAt: toProtoTimestamp(n.createdAt),
 				})),
 			};
-		} catch {
+		} catch (error) {
+			logSwallowed(error);
 			return { notifications: [] };
 		}
 	},
@@ -49,7 +52,8 @@ export const notificationsHandler: INotificationsService = {
 			const auth = validateSessionToken(request.sessionToken);
 			const result = await getUnreadCount(auth.userId);
 			return { count: result.count };
-		} catch {
+		} catch (error) {
+			logSwallowed(error);
 			return { count: 0 };
 		}
 	},
@@ -62,7 +66,7 @@ export const notificationsHandler: INotificationsService = {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "Failed to mark as read",
+				...errorFields(error, "Failed to mark as read"),
 			};
 		}
 	},
@@ -75,7 +79,7 @@ export const notificationsHandler: INotificationsService = {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "Failed to mark all as read",
+				...errorFields(error, "Failed to mark all as read"),
 			};
 		}
 	},
@@ -88,8 +92,10 @@ export const notificationsHandler: INotificationsService = {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "Failed to delete notification",
+				...errorFields(error, "Failed to delete notification"),
 			};
 		}
 	},
 };
+
+export const notificationsHandler = wrapHandler("NotificationsService", notificationsService);

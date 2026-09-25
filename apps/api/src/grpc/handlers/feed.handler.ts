@@ -1,7 +1,9 @@
 import type { IFeedService, PostResponse } from "@chirp/proto";
 import { validateSessionToken } from "../../middleware/auth";
+import { resolveOptionalAuth } from "../../middleware/optional-auth";
 import { getExploreFeed, getHomeFeed } from "../../services/feed.service";
 import { toProtoTimestamp } from "../../services/utils";
+import { wrapHandler } from "../wrap";
 
 function toPostResponse(post: any): PostResponse {
 	return {
@@ -23,8 +25,10 @@ function toPostResponse(post: any): PostResponse {
 	};
 }
 
-export const feedHandler: IFeedService = {
+const feedService: IFeedService = {
 	async getHomeFeed(request) {
+		// Requires auth: an invalid/missing token throws and the boundary wrapper
+		// maps it to UNAUTHENTICATED instead of an opaque UNKNOWN.
 		const auth = validateSessionToken(request.sessionToken);
 		const posts = await getHomeFeed(auth.userId, {
 			limit: request.pagination?.limit || 20,
@@ -37,15 +41,7 @@ export const feedHandler: IFeedService = {
 	},
 
 	async getExploreFeed(request) {
-		let userId: string | undefined;
-		if (request.sessionToken) {
-			try {
-				const auth = validateSessionToken(request.sessionToken);
-				userId = auth.userId;
-			} catch {
-				// Ignore invalid token for public access
-			}
-		}
+		const userId = resolveOptionalAuth(request.sessionToken);
 
 		const posts = await getExploreFeed({
 			limit: request.pagination?.limit || 20,
@@ -58,3 +54,5 @@ export const feedHandler: IFeedService = {
 		};
 	},
 };
+
+export const feedHandler = wrapHandler("FeedService", feedService);

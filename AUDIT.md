@@ -8,6 +8,7 @@
 |---|---|---|
 | 1 | The Credential Problem | Fixed + tested (legacy-path sunset deferred) |
 | 2 | The Query Performance Problem (N+1) | Fixed + tested |
+| 3 | Error Handling & Observability | Fixed + tested |
 | 5 | Build Pipeline & Developer Experience | Fixed + verified (pre-existing lint/test debt surfaced, deferred) |
 
 ---
@@ -121,6 +122,81 @@ Counts are `fixed + (per-row × N)` before, and constant (flat as N grows) after
 `pnpm --filter @chirp/api test` — 170 passing (138 pre-existing + 32 new).
 
 _Design rationale and rejected alternatives: see `ISSUE-2-QUERY-PERFORMANCE.md`._
+
+---
+
+## Issue 3 — Error Handling & Observability
+
+**Date:** 2026-09-25 · **Areas:** `apps/api` (`grpc/handlers`, `grpc/wrap.ts`, `errors/`,
+`observability/`, `middleware/`), `packages/proto`
+
+### Problem
+
+The API handled failures four different, inconsistent ways, and had effectively no
+production observability.
+
+**Error-handling strategies found (same failure class surfaced four ways):**
+
+- **A — try/catch → `{ success:false, error }` payload, status OK** (most mutations). The
+  transport reports success while the call failed; the error is an opaque English string with
+  no machine-readable code, so clients can't distinguish "not found" from "unauthorized" from
+  "server error", and metrics/alerts keyed on gRPC status are blind.
+- **B — try/catch → re-throw generic `Error`** (`auth.getCurrentUser`). Crosses the wire as
+  `UNKNOWN`/`INTERNAL`, stack lost; an expired token looks identical to a server crash.
+- **C — swallow → default** (status/count reads). Two flavours: legitimate public-access token
+  degradation, and a dangerous blanket `catch {}` that turns a DB outage into "nothing is
+  liked / zero followers / no notifications" with **no log line at all**.
+- **D — no try/catch; raw propagation** (`feed.getHomeFeed`, admin reads). Auth/authorization
+  denials and raw ORM errors both surface as `UNKNOWN`, leaking internals and conflating 401/403
+  with 500.
+
+**Observability gap:** only startup `console.log`s. No per-request logging, no correlation/trace
+IDs, no structured output — so a user report can't be tied to a request, one request can't be
+followed across the handler→service boundary, and swallowed failures leave no trail.
+
+### Fix
+
+Unified taxonomy + a single boundary that also carries tracing and logging.
+
+- **Error taxonomy** (`errors/`): `AppError` hierarchy whose codes equal gRPC status names, so
+  translation is a direct lookup. `classifyError` maps typed errors by code and the remaining
+  plain-`Error` service throws via a message registry (transitional bridge); unrecognized →
+  `INTERNAL`, masked on the wire while the real detail is logged.
+- **Boundary wrapper** (`grpc/wrap.ts`): every handler method is wrapped once. It mints/propagates
+  a trace id, returns it to the client via **response trailers** (`x-trace-id`) — out-of-band, so
+  no response contract changes — emits structured start/finish/duration logs, and maps any uncaught
+  error to the correct gRPC status via `RpcError` (no more blanket `UNKNOWN`).
+- **Request tracing** (`observability/`): `AsyncLocalStorage` propagates `{traceId, method, userId}`
+  through handler→service with **no function-signature changes**; a JSON-to-stdout logger enriches
+  every line with that context.
+- **Contract preservation:** the `{ success, error }` shape and exact `error` strings (incl.
+  per-method fallbacks) are unchanged; the public-access token-swallowing is now an explicit
+  `middleware/optional-auth.ts` (same behaviour, now logged); blanket swallow-reads keep their
+  defaults but log real faults via `logSwallowed`.
+- **Machine-readable code:** added optional `error_code` to all 20 payload response messages in
+  `packages/proto` (regenerated) — additive, so existing clients/tests are unaffected.
+
+This merges cleanly with Issue 1: `requireAdmin`/`requireSuperAdmin` (now async, DB-verified)
+throw typed `PermissionError`s that the boundary maps to `PERMISSION_DENIED`.
+
+### Error taxonomy → gRPC status
+
+| `AppErrorCode` | gRPC status | Example sources |
+|---|---|---|
+| `UNAUTHENTICATED` | 16 | invalid/expired token, auth required |
+| `PERMISSION_DENIED` | 7 | admin/super-admin required, "your own posts", account banned |
+| `NOT_FOUND` | 5 | user/post/comment/report/notification not found |
+| `ALREADY_EXISTS` | 6 | username taken, email already exists |
+| `INVALID_ARGUMENT` | 3 | content required / >280 chars, invalid role/credentials |
+| `FAILED_PRECONDITION` | 9 | edit window expired, reply-to-reply, cannot ban admin |
+| `INTERNAL` | 13 | anything unrecognized (message masked on the wire) |
+
+### Verification
+
+`pnpm --filter @chirp/api test` — 222 passing. New tests cover the taxonomy, `classifyError`,
+gRPC mapping, `AsyncLocalStorage` propagation, the JSON logger, the boundary wrapper (status
+mapping + trace-id trailers), and `resolveOptionalAuth`. Existing handler/service suites and the
+Issue 1/2 suites pass unchanged.
 
 ---
 

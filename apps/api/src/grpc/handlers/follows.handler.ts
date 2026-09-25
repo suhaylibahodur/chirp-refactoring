@@ -1,4 +1,5 @@
 import type { IFollowsService } from "@chirp/proto";
+import { errorFields, logSwallowed } from "../../errors/handler-errors";
 import { validateSessionToken } from "../../middleware/auth";
 import {
 	getFollowerCount,
@@ -6,8 +7,9 @@ import {
 	getFollowStatus,
 	toggleFollow,
 } from "../../services/follows.service";
+import { wrapHandler } from "../wrap";
 
-export const followsHandler: IFollowsService = {
+const followsService: IFollowsService = {
 	async toggleFollow(request) {
 		try {
 			const auth = validateSessionToken(request.sessionToken);
@@ -21,7 +23,7 @@ export const followsHandler: IFollowsService = {
 			return {
 				success: false,
 				following: false,
-				error: error instanceof Error ? error.message : "Failed to toggle follow",
+				...errorFields(error, "Failed to toggle follow"),
 			};
 		}
 	},
@@ -32,7 +34,8 @@ export const followsHandler: IFollowsService = {
 			const result = await getFollowStatus(request.username, auth.userId);
 
 			return { following: result.following };
-		} catch {
+		} catch (error) {
+			logSwallowed(error);
 			return { following: false };
 		}
 	},
@@ -41,7 +44,8 @@ export const followsHandler: IFollowsService = {
 		try {
 			const result = await getFollowerCount(request.username);
 			return { count: result.count };
-		} catch {
+		} catch (error) {
+			logSwallowed(error);
 			return { count: 0 };
 		}
 	},
@@ -50,8 +54,11 @@ export const followsHandler: IFollowsService = {
 		try {
 			const result = await getFollowingCount(request.username);
 			return { count: result.count };
-		} catch {
+		} catch (error) {
+			logSwallowed(error);
 			return { count: 0 };
 		}
 	},
 };
+
+export const followsHandler = wrapHandler("FollowsService", followsService);
