@@ -1,39 +1,104 @@
 {
 	"$schema": "https://turbo.build/schema.json",
+	"globalDependencies": [
+		"biome.json",
+		"tooling/typescript/tsconfig.base.json",
+		"tooling/typescript/tsconfig.react.json"
+	],
+	"globalEnv": ["NODE_ENV", "CI"],
 	"tasks": {
 		"build": {
 			"dependsOn": ["^build"],
-			"outputs": ["dist/**", ".output/**", ".vinxi/**", ".tanstack/**", "generated/**"]
+			"outputs": [
+				"dist/**",
+				".output/**",
+				".vinxi/**",
+				".tanstack/**",
+				"generated/**",
+				"src/routeTree.gen.ts"
+			]
+		},
+		"@chirp/api#build": {
+			"dependsOn": ["^build"],
+			"outputs": []
 		},
 		"dev": {
 			"cache": false,
 			"persistent": true
 		},
-		"lint": {
-			"dependsOn": ["^build"]
-		},
+		"lint": {},
 		"typecheck": {
 			"dependsOn": ["^build"]
 		},
+		"@chirp/proto#typecheck": {
+			"dependsOn": ["proto:generate"]
+		},
+		"@chirp/client-user#typecheck": {
+			"dependsOn": ["build"]
+		},
+		"@chirp/client-admin#typecheck": {
+			"dependsOn": ["build"]
+		},
 		"test": {
 			"dependsOn": ["^build"],
-			"outputs": ["coverage/**"]
+			"outputs": ["coverage/**"],
+			"env": [
+				"DATABASE_URL",
+				"GRPC_JWT_SECRET",
+				"GRPC_PORT",
+				"GRPC_API_HOST",
+				"HTTP_PORT",
+				"SESSION_SECRET"
+			]
 		},
 		"test:unit": {
 			"dependsOn": ["^build"],
-			"outputs": ["coverage/**"]
+			"outputs": ["coverage/**"],
+			"env": [
+				"DATABASE_URL",
+				"GRPC_JWT_SECRET",
+				"GRPC_PORT",
+				"GRPC_API_HOST",
+				"HTTP_PORT",
+				"SESSION_SECRET"
+			]
 		},
 		"test:integration": {
-			"dependsOn": ["^build"]
+			"dependsOn": ["^build"],
+			"cache": false,
+			"env": [
+				"DATABASE_URL",
+				"GRPC_JWT_SECRET",
+				"GRPC_PORT",
+				"GRPC_API_HOST",
+				"HTTP_PORT",
+				"SESSION_SECRET"
+			]
 		},
 		"test:e2e": {
-			"dependsOn": ["build"]
+			"dependsOn": ["build"],
+			"cache": false,
+			"env": [
+				"DATABASE_URL",
+				"GRPC_JWT_SECRET",
+				"GRPC_PORT",
+				"GRPC_API_HOST",
+				"HTTP_PORT",
+				"SESSION_SECRET"
+			]
 		},
 		"proto:generate": {
+			"inputs": ["protos/**/*.proto"],
 			"outputs": ["generated/**"]
 		},
-		"db:generate": {},
-		"db:migrate": {},
-		"db:seed": {}
+		"db:generate": {
+			"cache": false
+		},
+		"db:migrate": {
+			"cache": false
+		},
+		"db:seed": {
+			"cache": false
+		}
 	}
 }
