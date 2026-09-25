@@ -22,9 +22,10 @@ vi.mock("../../../services/admin.service", () => ({
 vi.mock("../../../middleware/auth", () => ({
 	validateSessionToken: vi.fn(),
 	requireAdmin: vi.fn(),
+	requireSuperAdmin: vi.fn(),
 }));
 
-import { requireAdmin, validateSessionToken } from "../../../middleware/auth";
+import { requireAdmin, requireSuperAdmin, validateSessionToken } from "../../../middleware/auth";
 import {
 	banUser,
 	deleteCommentAdmin,
@@ -54,7 +55,8 @@ describe("AdminHandler", () => {
 			username: "admin",
 			role: "admin",
 		});
-		vi.mocked(requireAdmin).mockReturnValue(undefined);
+		vi.mocked(requireAdmin).mockResolvedValue(undefined);
+		vi.mocked(requireSuperAdmin).mockResolvedValue(undefined);
 	};
 
 	const mockUserAuth = () => {
@@ -63,9 +65,20 @@ describe("AdminHandler", () => {
 			username: "testuser",
 			role: "user",
 		});
-		vi.mocked(requireAdmin).mockImplementation(() => {
-			throw new Error("Admin access required");
+		vi.mocked(requireAdmin).mockRejectedValue(new Error("Admin access required"));
+		vi.mocked(requireSuperAdmin).mockRejectedValue(new Error("Super admin access required"));
+	};
+
+	// A moderator passes requireAdmin (moderator-OK endpoints) but is rejected by
+	// requireSuperAdmin (admin-only endpoints like role changes / user deletion).
+	const mockModeratorAuth = () => {
+		vi.mocked(validateSessionToken).mockReturnValue({
+			userId: "mod-123",
+			username: "moderator",
+			role: "moderator",
 		});
+		vi.mocked(requireAdmin).mockResolvedValue(undefined);
+		vi.mocked(requireSuperAdmin).mockRejectedValue(new Error("Super admin access required"));
 	};
 
 	describe("listUsers", () => {
@@ -232,6 +245,21 @@ describe("AdminHandler", () => {
 			expect(result.success).toBe(false);
 			expect(result.error).toBe("Invalid role");
 		});
+
+		it("rejects a moderator trying to change roles (no self-promotion to admin)", async () => {
+			mockModeratorAuth();
+
+			const result = await adminHandler.updateUserRole({
+				sessionToken: "moderator-token",
+				userId: "mod-123",
+				role: "admin",
+			});
+
+			expect(result.success).toBe(false);
+			expect(result.error).toBe("Super admin access required");
+			// The privileged mutation must never run for a moderator.
+			expect(updateUserRole).not.toHaveBeenCalled();
+		});
 	});
 
 	describe("deleteUser", () => {
@@ -259,6 +287,20 @@ describe("AdminHandler", () => {
 
 			expect(result.success).toBe(false);
 			expect(result.error).toBe("Cannot delete admin");
+		});
+
+		it("rejects a moderator trying to delete a user (admin-only)", async () => {
+			mockModeratorAuth();
+
+			const result = await adminHandler.deleteUser({
+				sessionToken: "moderator-token",
+				userId: "user-456",
+			});
+
+			expect(result.success).toBe(false);
+			expect(result.error).toBe("Super admin access required");
+			// The destructive mutation must never run for a moderator.
+			expect(deleteUser).not.toHaveBeenCalled();
 		});
 	});
 

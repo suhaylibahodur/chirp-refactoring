@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createTestUser } from "../../tests/helpers";
 import { db, schema } from "../db";
 import { getCurrentUser, loginUser, registerUser } from "./auth.service";
+import { isLegacyPasswordHash } from "./utils";
 
 const { users } = schema;
 
@@ -69,6 +70,41 @@ describe("AuthService", () => {
 
 			expect(result.userId).toBeDefined();
 			expect(result.sessionToken).toBeDefined();
+		});
+
+		it("logs in a legacy (SHA-256) user and upgrades their hash to bcrypt", async () => {
+			const user = await createTestUser({
+				email: "legacy@example.com",
+				password: "legacypass",
+				legacyHash: true,
+			});
+
+			// Precondition: seeded with a legacy hash.
+			const before = await db.select().from(users).where(eq(users.id, user.id)).get();
+			expect(isLegacyPasswordHash(before?.passwordHash)).toBe(true);
+
+			const result = await loginUser({
+				email: "legacy@example.com",
+				password: "legacypass",
+			});
+			expect(result.sessionToken).toBeDefined();
+
+			// The stored hash is transparently migrated to bcrypt on successful login.
+			const after = await db.select().from(users).where(eq(users.id, user.id)).get();
+			expect(after?.passwordHash.startsWith("$2")).toBe(true);
+			expect(after?.passwordHash).not.toBe(before?.passwordHash);
+		});
+
+		it("stores new registrations with a bcrypt hash", async () => {
+			const { userId } = await registerUser({
+				email: "fresh@example.com",
+				username: "freshuser",
+				displayName: "Fresh User",
+				password: "password123",
+			});
+
+			const user = await db.select().from(users).where(eq(users.id, userId)).get();
+			expect(user?.passwordHash.startsWith("$2")).toBe(true);
 		});
 
 		it("rejects invalid email", async () => {
