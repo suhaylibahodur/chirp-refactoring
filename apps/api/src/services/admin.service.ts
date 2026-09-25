@@ -151,6 +151,12 @@ export async function updateUserRole(userId: string, role: string, adminId: stri
 		throw new Error("Invalid role");
 	}
 
+	// Guardrail: an admin cannot change their own role (prevents accidental
+	// self-lockout and self-escalation via any weaker future guard).
+	if (userId === adminId) {
+		throw new Error("Cannot change your own role");
+	}
+
 	const user = await db.select().from(users).where(eq(users.id, userId)).get();
 
 	if (!user) {

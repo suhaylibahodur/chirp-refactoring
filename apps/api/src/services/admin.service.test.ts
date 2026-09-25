@@ -1,9 +1,12 @@
+import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import { createTestComment, createTestPost, createTestUser } from "../../tests/helpers";
 import { countQueries } from "../../tests/query-counter";
 import { db, schema } from "../db";
-import { getAuditLogs, listReports, listUsers } from "./admin.service";
+import { getAuditLogs, listReports, listUsers, updateUserRole } from "./admin.service";
 import { generateId } from "./utils";
+
+const { users } = schema;
 
 async function insertReport(reporterId: string, createdAt?: Date) {
 	await db.insert(schema.reports).values({
@@ -43,10 +46,12 @@ describe("AdminService", () => {
 		});
 
 		it("runs a constant number of queries regardless of user count", async () => {
-			for (let i = 0; i < 3; i++) await createTestUser();
+			// Use the fast legacy hash — bcrypt hashing dozens of users is slow and
+			// irrelevant to what this test measures (query count).
+			for (let i = 0; i < 3; i++) await createTestUser({ legacyHash: true });
 			const { queries: few } = await countQueries(() => listUsers({ limit: 50 }));
 
-			for (let i = 0; i < 15; i++) await createTestUser();
+			for (let i = 0; i < 15; i++) await createTestUser({ legacyHash: true });
 			const { queries: many } = await countQueries(() => listUsers({ limit: 50 }));
 
 			expect(few).toBe(many);
@@ -100,5 +105,36 @@ describe("AdminService", () => {
 			expect(few).toBe(many);
 			expect(many).toBeLessThanOrEqual(2); // 1 joined list + 1 total
 		});
+	});
+});
+
+describe("admin.service updateUserRole", () => {
+	it("rejects an admin changing their own role (self-lockout / self-escalation guard)", async () => {
+		const admin = await createTestUser({ role: "admin" });
+
+		await expect(updateUserRole(admin.id, "user", admin.id)).rejects.toThrow(
+			"Cannot change your own role",
+		);
+
+		// Role unchanged.
+		const after = await db.select().from(users).where(eq(users.id, admin.id)).get();
+		expect(after?.role).toBe("admin");
+	});
+
+	it("allows changing another user's role", async () => {
+		const admin = await createTestUser({ role: "admin" });
+		const target = await createTestUser({ role: "user" });
+
+		await updateUserRole(target.id, "moderator", admin.id);
+
+		const after = await db.select().from(users).where(eq(users.id, target.id)).get();
+		expect(after?.role).toBe("moderator");
+	});
+
+	it("rejects an invalid role value", async () => {
+		const admin = await createTestUser({ role: "admin" });
+		const target = await createTestUser({ role: "user" });
+
+		await expect(updateUserRole(target.id, "superuser", admin.id)).rejects.toThrow("Invalid role");
 	});
 });

@@ -1,5 +1,8 @@
 import { beforeEach, vi } from "vitest";
 
+// Provide a valid gRPC JWT secret for tests (production fails closed without one).
+process.env.GRPC_JWT_SECRET ||= "test-grpc-jwt-secret-at-least-32-characters-long";
+
 // Mock the database module before any imports
 vi.mock("../src/db", async () => {
 	const { drizzle } = await import("drizzle-orm/libsql");
