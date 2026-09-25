@@ -4,7 +4,7 @@ import type {
 	IAdminService,
 	ReportResponse,
 } from "@chirp/proto";
-import { requireAdmin, validateSessionToken } from "../../middleware/auth";
+import { requireAdmin, requireSuperAdmin, validateSessionToken } from "../../middleware/auth";
 import {
 	banUser,
 	deleteCommentAdmin,
@@ -73,7 +73,7 @@ function toAuditLogResponse(log: any): AuditLogResponse {
 export const adminHandler: IAdminService = {
 	async listUsers(request) {
 		const auth = validateSessionToken(request.sessionToken);
-		requireAdmin(auth);
+		await requireAdmin(auth);
 
 		const result = await listUsers({
 			limit: request.pagination?.limit || 20,
@@ -90,7 +90,7 @@ export const adminHandler: IAdminService = {
 
 	async getUserDetails(request) {
 		const auth = validateSessionToken(request.sessionToken);
-		requireAdmin(auth);
+		await requireAdmin(auth);
 
 		const user = await getUserDetails(request.userId);
 
@@ -102,7 +102,7 @@ export const adminHandler: IAdminService = {
 	async banUser(request) {
 		try {
 			const auth = validateSessionToken(request.sessionToken);
-			requireAdmin(auth);
+			await requireAdmin(auth);
 
 			await banUser(request.userId, request.reason, auth.userId);
 
@@ -118,7 +118,7 @@ export const adminHandler: IAdminService = {
 	async unbanUser(request) {
 		try {
 			const auth = validateSessionToken(request.sessionToken);
-			requireAdmin(auth);
+			await requireAdmin(auth);
 
 			await unbanUser(request.userId, auth.userId);
 
@@ -134,7 +134,8 @@ export const adminHandler: IAdminService = {
 	async updateUserRole(request) {
 		try {
 			const auth = validateSessionToken(request.sessionToken);
-			requireAdmin(auth);
+			// Admin-only: prevents a moderator from promoting themselves to admin.
+			await requireSuperAdmin(auth);
 
 			await updateUserRole(request.userId, request.role, auth.userId);
 
@@ -150,7 +151,8 @@ export const adminHandler: IAdminService = {
 	async deleteUser(request) {
 		try {
 			const auth = validateSessionToken(request.sessionToken);
-			requireAdmin(auth);
+			// Admin-only: user deletion is destructive and role-adjacent.
+			await requireSuperAdmin(auth);
 
 			await deleteUser(request.userId, auth.userId);
 
@@ -166,7 +168,7 @@ export const adminHandler: IAdminService = {
 	async deletePostAdmin(request) {
 		try {
 			const auth = validateSessionToken(request.sessionToken);
-			requireAdmin(auth);
+			await requireAdmin(auth);
 
 			await deletePostAdmin(request.postId, request.reason, auth.userId);
 
@@ -182,7 +184,7 @@ export const adminHandler: IAdminService = {
 	async deleteCommentAdmin(request) {
 		try {
 			const auth = validateSessionToken(request.sessionToken);
-			requireAdmin(auth);
+			await requireAdmin(auth);
 
 			await deleteCommentAdmin(request.commentId, request.reason, auth.userId);
 
@@ -197,7 +199,7 @@ export const adminHandler: IAdminService = {
 
 	async listReports(request) {
 		const auth = validateSessionToken(request.sessionToken);
-		requireAdmin(auth);
+		await requireAdmin(auth);
 
 		const result = await listReports({
 			limit: request.pagination?.limit || 20,
@@ -214,7 +216,7 @@ export const adminHandler: IAdminService = {
 
 	async getReport(request) {
 		const auth = validateSessionToken(request.sessionToken);
-		requireAdmin(auth);
+		await requireAdmin(auth);
 
 		const report = await getReport(request.reportId);
 
@@ -224,7 +226,7 @@ export const adminHandler: IAdminService = {
 	async reviewReport(request) {
 		try {
 			const auth = validateSessionToken(request.sessionToken);
-			requireAdmin(auth);
+			await requireAdmin(auth);
 
 			await reviewReport(request.reportId, request.action, auth.userId, request.notes || undefined);
 
@@ -239,7 +241,7 @@ export const adminHandler: IAdminService = {
 
 	async getDashboardStats(request) {
 		const auth = validateSessionToken(request.sessionToken);
-		requireAdmin(auth);
+		await requireAdmin(auth);
 
 		const stats = await getDashboardStats();
 
@@ -256,7 +258,7 @@ export const adminHandler: IAdminService = {
 
 	async getAuditLogs(request) {
 		const auth = validateSessionToken(request.sessionToken);
-		requireAdmin(auth);
+		await requireAdmin(auth);
 
 		const result = await getAuditLogs({
 			limit: request.pagination?.limit || 50,

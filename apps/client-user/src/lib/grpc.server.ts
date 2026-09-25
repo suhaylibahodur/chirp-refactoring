@@ -2,8 +2,15 @@ import { type ChirpClient, createChirpClient } from "@chirp/grpc-client";
 import jwt from "jsonwebtoken";
 import { getSessionData, type SessionData } from "./session.server";
 
-// JWT secret must match the API server
-const JWT_SECRET = process.env.GRPC_JWT_SECRET || "chirp-grpc-jwt-secret-key-at-least-32-chars";
+// JWT secret must match the API server. No insecure default: fail closed if it is
+// missing or too weak, rather than signing tokens with a publicly known value.
+function getJwtSecret(): string {
+	const secret = process.env.GRPC_JWT_SECRET;
+	if (!secret || secret.length < 32) {
+		throw new Error("GRPC_JWT_SECRET must be set and at least 32 characters long");
+	}
+	return secret;
+}
 
 // gRPC API host
 const GRPC_HOST = process.env.GRPC_API_HOST || "localhost:50051";
@@ -38,7 +45,7 @@ export function createGrpcSessionToken(
 			username: session.username,
 			role,
 		},
-		JWT_SECRET,
+		getJwtSecret(),
 		{ expiresIn: 300 }, // 5 minutes
 	);
 }
