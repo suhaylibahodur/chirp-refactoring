@@ -1,7 +1,7 @@
 import { eq } from "drizzle-orm";
 import { db, schema } from "../db";
 import { type AuthContext, createSessionToken } from "../middleware/auth";
-import { generateId, hashPassword, verifyPassword } from "./utils";
+import { generateId, hashPassword, isLegacyPasswordHash, verifyPassword } from "./utils";
 
 const { users } = schema;
 
@@ -77,6 +77,13 @@ export async function loginUser(input: LoginInput) {
 	const valid = await verifyPassword(input.password, user.passwordHash);
 	if (!valid) {
 		throw new Error("Invalid email or password");
+	}
+
+	// Incremental migration: if the stored hash is a legacy SHA-256 hash, we now
+	// hold the plaintext for this instant, so upgrade it to bcrypt transparently.
+	if (isLegacyPasswordHash(user.passwordHash)) {
+		const upgradedHash = await hashPassword(input.password);
+		await db.update(users).set({ passwordHash: upgradedHash }).where(eq(users.id, user.id));
 	}
 
 	// Create session token

@@ -1,5 +1,5 @@
 import { db, schema } from "../src/db";
-import { generateId, hashPassword } from "../src/services/utils";
+import { generateId, hashPassword, legacyHashPassword } from "../src/services/utils";
 
 const { users, posts, comments, likes, follows } = schema;
 
@@ -18,6 +18,8 @@ export async function createTestUser(
 		displayName: string;
 		password: string;
 		role: "user" | "admin" | "moderator";
+		/** When true, store the password using the legacy SHA-256 scheme (for migration tests). */
+		legacyHash: boolean;
 	}> = {},
 ): Promise<TestUser> {
 	const id = generateId();
@@ -27,7 +29,9 @@ export async function createTestUser(
 	const password = overrides.password || "password123";
 	const role = overrides.role || "user";
 
-	const passwordHash = await hashPassword(password);
+	const passwordHash = overrides.legacyHash
+		? legacyHashPassword(password)
+		: await hashPassword(password);
 
 	await db.insert(users).values({
 		id,
