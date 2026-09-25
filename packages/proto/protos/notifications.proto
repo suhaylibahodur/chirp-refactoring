@@ -49,6 +49,7 @@ message MarkAsReadRequest {
 message MarkAsReadResponse {
   bool success = 1;
   optional string error = 2;
+  optional string error_code = 3;
 }
 
 message MarkAllAsReadRequest {
@@ -58,6 +59,7 @@ message MarkAllAsReadRequest {
 message MarkAllAsReadResponse {
   bool success = 1;
   optional string error = 2;
+  optional string error_code = 3;
 }
 
 message DeleteNotificationRequest {
@@ -68,4 +70,5 @@ message DeleteNotificationRequest {
 message DeleteNotificationResponse {
   bool success = 1;
   optional string error = 2;
+  optional string error_code = 3;
 }

@@ -1,19 +1,14 @@
 import type { IUsersService } from "@chirp/proto";
+import { errorFields } from "../../errors/handler-errors";
 import { validateSessionToken } from "../../middleware/auth";
+import { resolveOptionalAuth } from "../../middleware/optional-auth";
 import { getUser, updateProfile } from "../../services/users.service";
 import { toProtoTimestamp } from "../../services/utils";
+import { wrapHandler } from "../wrap";
 
-export const usersHandler: IUsersService = {
+const usersService: IUsersService = {
 	async getUser(request) {
-		let userId: string | undefined;
-		if (request.sessionToken) {
-			try {
-				const auth = validateSessionToken(request.sessionToken);
-				userId = auth.userId;
-			} catch {
-				// Ignore invalid token for public access
-			}
-		}
+		const userId = resolveOptionalAuth(request.sessionToken);
 
 		const user = await getUser(request.username, userId);
 
@@ -47,8 +42,10 @@ export const usersHandler: IUsersService = {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "Failed to update profile",
+				...errorFields(error, "Failed to update profile"),
 			};
 		}
 	},
 };
+
+export const usersHandler = wrapHandler("UsersService", usersService);

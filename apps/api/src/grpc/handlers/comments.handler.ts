@@ -1,7 +1,10 @@
 import type { CommentResponse, ICommentsService } from "@chirp/proto";
+import { errorFields } from "../../errors/handler-errors";
 import { validateSessionToken } from "../../middleware/auth";
+import { resolveOptionalAuth } from "../../middleware/optional-auth";
 import { createComment, deleteComment, getPostComments } from "../../services/comments.service";
 import { toProtoTimestamp } from "../../services/utils";
+import { wrapHandler } from "../wrap";
 
 function toCommentResponse(comment: any): CommentResponse {
 	return {
@@ -23,7 +26,7 @@ function toCommentResponse(comment: any): CommentResponse {
 	};
 }
 
-export const commentsHandler: ICommentsService = {
+const commentsService: ICommentsService = {
 	async createComment(request) {
 		try {
 			const auth = validateSessionToken(request.sessionToken);
@@ -42,21 +45,13 @@ export const commentsHandler: ICommentsService = {
 			return {
 				success: false,
 				commentId: "",
-				error: error instanceof Error ? error.message : "Failed to create comment",
+				...errorFields(error, "Failed to create comment"),
 			};
 		}
 	},
 
 	async getPostComments(request) {
-		let userId: string | undefined;
-		if (request.sessionToken) {
-			try {
-				const auth = validateSessionToken(request.sessionToken);
-				userId = auth.userId;
-			} catch {
-				// Ignore invalid token for public access
-			}
-		}
+		const userId = resolveOptionalAuth(request.sessionToken);
 
 		const comments = await getPostComments(request.postId, userId);
 
@@ -74,8 +69,10 @@ export const commentsHandler: ICommentsService = {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "Failed to delete comment",
+				...errorFields(error, "Failed to delete comment"),
 			};
 		}
 	},
 };
+
+export const commentsHandler = wrapHandler("CommentsService", commentsService);

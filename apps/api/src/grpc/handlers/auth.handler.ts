@@ -1,9 +1,11 @@
 import type { IAuthService } from "@chirp/proto";
+import { errorFields, logSwallowed } from "../../errors/handler-errors";
 import { validateSessionToken } from "../../middleware/auth";
 import { getCurrentUser, loginUser, registerUser } from "../../services/auth.service";
 import { toProtoTimestamp } from "../../services/utils";
+import { wrapHandler } from "../wrap";
 
-export const authHandler: IAuthService = {
+const authService: IAuthService = {
 	async register(request) {
 		try {
 			const result = await registerUser({
@@ -23,7 +25,7 @@ export const authHandler: IAuthService = {
 				success: false,
 				userId: "",
 				sessionToken: "",
-				error: error instanceof Error ? error.message : "Registration failed",
+				...errorFields(error, "Registration failed"),
 			};
 		}
 	},
@@ -45,7 +47,7 @@ export const authHandler: IAuthService = {
 				success: false,
 				userId: "",
 				sessionToken: "",
-				error: error instanceof Error ? error.message : "Login failed",
+				...errorFields(error, "Login failed"),
 			};
 		}
 	},
@@ -56,23 +58,21 @@ export const authHandler: IAuthService = {
 	},
 
 	async getCurrentUser(request) {
-		try {
-			const auth = validateSessionToken(request.sessionToken);
-			const user = await getCurrentUser(auth.userId);
+		// Errors (invalid token, user not found) propagate to the boundary wrapper,
+		// which maps them to the correct gRPC status instead of an opaque UNKNOWN.
+		const auth = validateSessionToken(request.sessionToken);
+		const user = await getCurrentUser(auth.userId);
 
-			return {
-				id: user.id,
-				email: user.email,
-				username: user.username,
-				displayName: user.displayName,
-				avatarUrl: user.avatarUrl || undefined,
-				bio: user.bio || undefined,
-				role: user.role,
-				createdAt: toProtoTimestamp(user.createdAt),
-			};
-		} catch (error) {
-			throw new Error(error instanceof Error ? error.message : "Failed to get user");
-		}
+		return {
+			id: user.id,
+			email: user.email,
+			username: user.username,
+			displayName: user.displayName,
+			avatarUrl: user.avatarUrl || undefined,
+			bio: user.bio || undefined,
+			role: user.role,
+			createdAt: toProtoTimestamp(user.createdAt),
+		};
 	},
 
 	async validateSession(request) {
@@ -84,7 +84,8 @@ export const authHandler: IAuthService = {
 				username: auth.username,
 				role: auth.role,
 			};
-		} catch {
+		} catch (error) {
+			logSwallowed(error);
 			return {
 				valid: false,
 				userId: "",
@@ -94,3 +95,5 @@ export const authHandler: IAuthService = {
 		}
 	},
 };
+
+export const authHandler = wrapHandler("AuthService", authService);

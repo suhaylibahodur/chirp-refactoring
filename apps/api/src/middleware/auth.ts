@@ -2,6 +2,7 @@ import type { GrpcSessionPayload } from "@chirp/shared-types";
 import { eq } from "drizzle-orm";
 import jwt from "jsonwebtoken";
 import { db, schema } from "../db";
+import { PermissionError, UnauthenticatedError } from "../errors/app-error";
 
 const { users } = schema;
 
@@ -51,8 +52,8 @@ export function validateSessionToken(token: string): AuthContext {
 			username: decoded.username,
 			role: decoded.role,
 		};
-	} catch (error) {
-		throw new Error("Invalid or expired session token");
+	} catch {
+		throw new UnauthenticatedError("Invalid or expired session token");
 	}
 }
 
@@ -97,7 +98,7 @@ async function resolveDbRole(userId: string): Promise<AuthContext["role"] | null
  */
 export function requireAuth(token: string | undefined): AuthContext {
 	if (!token) {
-		throw new Error("Authentication required");
+		throw new UnauthenticatedError("Authentication required");
 	}
 	return validateSessionToken(token);
 }
@@ -109,7 +110,7 @@ export function requireAuth(token: string | undefined): AuthContext {
 export async function requireAdmin(context: AuthContext): Promise<void> {
 	const role = await resolveDbRole(context.userId);
 	if (role !== "admin" && role !== "moderator") {
-		throw new Error("Admin access required");
+		throw new PermissionError("Admin access required");
 	}
 }
 
@@ -121,6 +122,6 @@ export async function requireAdmin(context: AuthContext): Promise<void> {
 export async function requireSuperAdmin(context: AuthContext): Promise<void> {
 	const role = await resolveDbRole(context.userId);
 	if (role !== "admin") {
-		throw new Error("Super admin access required");
+		throw new PermissionError("Super admin access required");
 	}
 }

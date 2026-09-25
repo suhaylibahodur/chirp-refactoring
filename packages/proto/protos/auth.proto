@@ -28,6 +28,7 @@ message AuthResponse {
   string user_id = 2;
   string session_token = 3;
   optional string error = 4;
+  optional string error_code = 5;
 }
 
 message LogoutRequest {
