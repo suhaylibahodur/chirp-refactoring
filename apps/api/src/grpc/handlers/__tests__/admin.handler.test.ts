@@ -288,6 +288,20 @@ describe("AdminHandler", () => {
 			expect(result.success).toBe(false);
 			expect(result.error).toBe("Cannot delete admin");
 		});
+
+		it("rejects a moderator trying to delete a user (admin-only)", async () => {
+			mockModeratorAuth();
+
+			const result = await adminHandler.deleteUser({
+				sessionToken: "moderator-token",
+				userId: "user-456",
+			});
+
+			expect(result.success).toBe(false);
+			expect(result.error).toBe("Super admin access required");
+			// The destructive mutation must never run for a moderator.
+			expect(deleteUser).not.toHaveBeenCalled();
+		});
 	});
 
 	describe("deletePostAdmin", () => {

@@ -56,7 +56,9 @@ client TLS gated on `NODE_ENV`.
   gated by `requireAdmin`, which passes moderators too, so a *genuine* moderator can promote
   themselves to admin. Fix by gating role changes / user deletion with `requireSuperAdmin`
   (admin-only), auditing all 13 `requireAdmin` call sites into moderator-OK vs admin-only, and
-  adding guardrails (no self-role-change; can't grant a role above your own).
+  adding a self-role-change guardrail (an admin cannot change their own role). A
+  "can't grant a role above your own" check was omitted as unnecessary — the endpoint is
+  admin-only and `admin` is already the top role.
 
 **Out of scope (future hardening):** Option C — asymmetric keys (RS256/ES256) or mTLS with
 always-on TLS. Documented only.

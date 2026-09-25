@@ -226,9 +226,12 @@ Planned changes:
    - **Audit all 13 `requireAdmin` call sites** in `admin.handler.ts` and split them into
      *moderator-OK* (e.g. view users, delete a post) vs *admin-only* (change roles, delete
      users). Today moderators get the entire admin surface, which is too broad.
-   - **Guardrails in the `updateUserRole` service:** reject changing one's own role
-     (`request.userId !== auth.userId`), and reject granting a role higher than the caller's,
-     so the role system can't be foot-gunned even by an admin.
+   - **Guardrail in the `updateUserRole` service (shipped):** reject changing one's own
+     role (`userId === adminId`), so an admin can't foot-gun themselves.
+   - *(Not shipped — unnecessary today.)* A "can't grant a role higher than your own" check
+     was considered but omitted: the endpoint is admin-only via `requireSuperAdmin`, and
+     `admin` is already the highest role, so there is no higher role to grant. Revisit only
+     if a role above `admin` is ever introduced.
 
 **Trade-off:** one extra indexed `SELECT` per privileged call. Admin ops are low-frequency,
 so no caching is needed now; a short-TTL `userId → role` cache is the escape hatch if it

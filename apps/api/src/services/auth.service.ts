@@ -81,9 +81,16 @@ export async function loginUser(input: LoginInput) {
 
 	// Incremental migration: if the stored hash is a legacy SHA-256 hash, we now
 	// hold the plaintext for this instant, so upgrade it to bcrypt transparently.
+	// Best-effort: the password is already verified, so a failed upgrade must not
+	// block an otherwise-valid login — the user stays logged in and simply remains
+	// on the legacy hash until their next login retries the upgrade.
 	if (isLegacyPasswordHash(user.passwordHash)) {
-		const upgradedHash = await hashPassword(input.password);
-		await db.update(users).set({ passwordHash: upgradedHash }).where(eq(users.id, user.id));
+		try {
+			const upgradedHash = await hashPassword(input.password);
+			await db.update(users).set({ passwordHash: upgradedHash }).where(eq(users.id, user.id));
+		} catch (error) {
+			console.error(`Failed to upgrade password hash for user ${user.id}:`, error);
+		}
 	}
 
 	// Create session token
