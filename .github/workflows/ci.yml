@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TURBO_TELEMETRY_DISABLED: "1"
+  # Optional remote cache — set these as repo secret/variable to enable:
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: "file:./chirp.test.db"
+      GRPC_JWT_SECRET: "ci-test-secret-not-for-production"
+      SESSION_SECRET: "ci-test-session-secret"
+      GRPC_PORT: "50051"
+      GRPC_API_HOST: "localhost"
+      HTTP_PORT: "3001"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0            # required for --filter=...[origin/main]
+
+      - uses: pnpm/action-setup@v4  # reads packageManager from package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Restore Turbo cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo
+          key: turbo-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-
+
+      - name: Generate proto
+        run: pnpm proto:generate
+
+      - name: Validate (affected packages + dependents)
+        run: >
+          pnpm turbo run typecheck lint test:unit build
+          --filter=...[origin/${{ github.base_ref || 'main' }}]
+          --cache-dir=.turbo
