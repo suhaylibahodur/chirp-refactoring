@@ -1,39 +1,17 @@
-import { and, eq, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db, schema } from "../db";
+import { attachCommentLikeInfo } from "./enrichment";
 import { processMentions } from "./mentions.service";
 import { createNotification } from "./notifications.service";
 import { generateId } from "./utils";
 
-const { comments, users, likes, posts } = schema;
+const { comments, users, posts } = schema;
 
 export interface CreateCommentInput {
 	postId: string;
 	content: string;
 	authorId: string;
 	parentId?: string;
-}
-
-async function getCommentLikeInfo(commentId: string, userId?: string) {
-	const likesResult = await db
-		.select({ count: sql<number>`count(*)` })
-		.from(likes)
-		.where(eq(likes.commentId, commentId))
-		.get();
-
-	let isLiked = false;
-	if (userId) {
-		const likeStatus = await db
-			.select()
-			.from(likes)
-			.where(and(eq(likes.commentId, commentId), eq(likes.userId, userId)))
-			.get();
-		isLiked = !!likeStatus;
-	}
-
-	return {
-		likeCount: likesResult?.count || 0,
-		isLiked,
-	};
 }
 
 export async function createComment(input: CreateCommentInput) {
@@ -109,13 +87,11 @@ export async function getPostComments(postId: string, userId?: string) {
 		.leftJoin(users, eq(comments.authorId, users.id))
 		.where(and(eq(comments.postId, postId), isNull(comments.parentId)));
 
-	// Get all comments with their replies
-	const commentsWithReplies = await Promise.all(
-		topLevelComments.map(async (comment) => {
-			const likeInfo = await getCommentLikeInfo(comment.id, userId);
+	const topLevelIds = topLevelComments.map((c) => c.id);
 
-			// Get replies
-			const replies = await db
+	// Batch-fetch every reply for every top-level comment in one query.
+	const replies = topLevelIds.length
+		? await db
 				.select({
 					id: comments.id,
 					content: comments.content,
@@ -130,24 +106,28 @@ export async function getPostComments(postId: string, userId?: string) {
 				})
 				.from(comments)
 				.leftJoin(users, eq(comments.authorId, users.id))
-				.where(eq(comments.parentId, comment.id));
+				.where(inArray(comments.parentId, topLevelIds))
+		: [];
 
-			const repliesWithLikes = await Promise.all(
-				replies.map(async (reply) => {
-					const replyLikeInfo = await getCommentLikeInfo(reply.id, userId);
-					return { ...reply, ...replyLikeInfo, replies: [] };
-				}),
-			);
+	// Enrich top-level comments and replies with like info in a single batched pass.
+	const enriched = await attachCommentLikeInfo([...topLevelComments, ...replies], userId);
+	const enrichedTop = enriched.slice(0, topLevelComments.length);
+	const enrichedReplies = enriched.slice(topLevelComments.length);
 
-			return {
-				...comment,
-				...likeInfo,
-				replies: repliesWithLikes,
-			};
-		}),
-	);
+	// Group replies back under their parent, preserving fetch order.
+	type EnrichedReply = (typeof enrichedReplies)[number];
+	const repliesByParent = new Map<string, Array<EnrichedReply & { replies: never[] }>>();
+	for (const reply of enrichedReplies) {
+		if (!reply.parentId) continue;
+		const group = repliesByParent.get(reply.parentId) ?? [];
+		group.push({ ...reply, replies: [] });
+		repliesByParent.set(reply.parentId, group);
+	}
 
-	return commentsWithReplies;
+	return enrichedTop.map((comment) => ({
+		...comment,
+		replies: repliesByParent.get(comment.id) ?? [],
+	}));
 }
 
 export async function deleteComment(commentId: string, userId: string) {

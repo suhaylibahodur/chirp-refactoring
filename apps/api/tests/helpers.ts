@@ -1,7 +1,7 @@
 import { db, schema } from "../src/db";
 import { generateId, hashPassword } from "../src/services/utils";
 
-const { users, posts, comments, likes, follows } = schema;
+const { users, posts, comments, likes, follows, bookmarks } = schema;
 
 export interface TestUser {
 	id: string;
@@ -85,6 +85,26 @@ export async function createTestFollow(followerId: string, followingId: string):
 		id,
 		followerId,
 		followingId,
+	});
+	return id;
+}
+
+export async function createTestBookmark(userId: string, postId: string): Promise<string> {
+	const id = generateId();
+	await db.insert(bookmarks).values({
+		id,
+		userId,
+		postId,
+	});
+	return id;
+}
+
+export async function createTestCommentLike(userId: string, commentId: string): Promise<string> {
+	const id = generateId();
+	await db.insert(likes).values({
+		id,
+		userId,
+		commentId,
 	});
 	return id;
 }
