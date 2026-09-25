@@ -8,6 +8,7 @@
 |---|---|---|
 | 1 | The Credential Problem | Fixed + tested (legacy-path sunset deferred) |
 | 2 | The Query Performance Problem (N+1) | Fixed + tested |
+| 5 | Build Pipeline & Developer Experience | Fixed + verified (pre-existing lint/test debt surfaced, deferred) |
 
 ---
 
@@ -120,3 +121,71 @@ Counts are `fixed + (per-row × N)` before, and constant (flat as N grows) after
 `pnpm --filter @chirp/api test` — 170 passing (138 pre-existing + 32 new).
 
 _Design rationale and rejected alternatives: see `ISSUE-2-QUERY-PERFORMANCE.md`._
+
+---
+
+## Issue 5 — Build Pipeline & Developer Experience
+
+**Date:** 2026-09-25 · **Areas:** `turbo.json`, `.github/workflows`, `.husky`, `package.json`,
+`scripts`, root config
+**Full spec:** [SETUP.md](SETUP.md) (developer setup guide)
+
+There was no CI, no pre-commit validation, no Node pinning, and the Turbo build graph had
+codegen-ordering and cache-correctness gaps. Below is the audit and what was fixed.
+
+### 5a. Turbo build-graph & cache correctness
+
+| Finding | Severity | Concrete failure | Fix |
+|---|---|---|---|
+| `@chirp/proto#typecheck` didn't depend on `proto:generate` | High | proto's generated output is git-ignored; a clean `pnpm typecheck` fails at `@chirp/proto` before consumers run | `@chirp/proto#typecheck` `dependsOn: ["proto:generate"]` |
+| Client route-tree codegen not ordered | High | `routeTree.gen.ts` is git-ignored and only emitted by `vite build`; clean client `typecheck` fails (`Cannot find module './routeTree.gen'`). Was masked by a stale on-disk file | client `typecheck` `dependsOn: ["build"]`; `src/routeTree.gen.ts` added to `build` outputs so cache-restore brings it back |
+| `db:migrate` / `db:seed` / `db:generate` were cacheable (`{}`) | High | side-effecting DB ops cached a "success" → migrations/seeds **silently skipped** on cache hit | `cache: false` on all three |
+| No `env` on test tasks | Medium | `test:*` pass/fail cached without the env that determined it → stale green | `env: [DATABASE_URL, GRPC_JWT_SECRET, GRPC_PORT, GRPC_API_HOST, HTTP_PORT, SESSION_SECRET]` on `test`/`test:unit`/`test:integration`/`test:e2e` |
+| No `globalDependencies` / `globalEnv` | Medium | editing `biome.json` or shared tsconfigs didn't bust caches | `globalDependencies: [biome.json, shared tsconfigs]`, `globalEnv: [NODE_ENV, CI]` |
+| `lint` depended on `^build` | Medium | every lint built the whole upstream graph; slow; can't lint a clean checkout | removed `dependsOn` (Biome is syntactic) |
+| `@chirp/api#build` declared `dist/**` outputs but `tsc` emits nothing (base `noEmit`; api runs via `tsx`) | Low | `WARNING no output files found`; build never caches | `@chirp/api#build` `outputs: []` |
+| `proto:generate` had no `inputs` | Low | cache key didn't track `.proto` sources | `inputs: ["protos/**/*.proto"]` |
+| `.env.example` swallowed by `.gitignore` (`.env.*`) | Low | example env file would never be committed | added `!.env.example` negation |
+
+### 5b. CI pipeline (was: none)
+
+Added [.github/workflows/ci.yml](.github/workflows/ci.yml): validates every PR to `main` with
+`deps (frozen lockfile) → proto codegen → typecheck → lint → unit test → build`. **Fail-fast**
+via a single `turbo run` (Turbo's `--continue` defaults off). **Affected-only** rebuilds via
+`--filter=...[origin/main]` (changed packages **and their dependents**), with `fetch-depth: 0`
+so the base ref is diffable. Local `.turbo` cache + optional remote cache (`TURBO_TOKEN`/
+`TURBO_TEAM`). Node pinned from `.nvmrc`; pnpm from `packageManager`. No DB service needed (DB is
+SQLite); dummy secrets satisfy import-time env reads.
+
+### 5c. Pre-commit / pre-push hooks (was: none)
+
+Husky v9, auto-installed via the `prepare` script:
+- [.husky/pre-commit](.husky/pre-commit): `lint-staged` runs Biome on **staged files only** — fast.
+- [.husky/pre-push](.husky/pre-push): `turbo run typecheck lint --filter=...[origin/main]` — the
+  slower, type-aware gate runs once before sharing, not on every commit.
+
+### 5d. Developer experience
+
+- **Node pinning:** added [.nvmrc](.nvmrc) (20.18.1) + `engines` (was: only `packageManager` pinned).
+- **E2E orchestration:** replaced the fragile root `test:e2e` shell one-liner (no health-check
+  timeout → infinite hang; `kill $API_PID` orphaned the real `tsx` child) with
+  [scripts/e2e.sh](scripts/e2e.sh) — bounded health wait, `pkill -P` child cleanup, `trap` teardown.
+- **Onboarding:** [.env.example](.env.example) documents required env vars (`DATABASE_URL`,
+  `GRPC_JWT_SECRET`, `GRPC_PORT`, `GRPC_API_HOST`, `HTTP_PORT`, `SESSION_SECRET`); [SETUP.md](SETUP.md)
+  is a <50-line setup guide (prereqs, install, codegen, DB, run, test).
+
+### Verification
+
+On a wiped checkout (generated proto + route trees + `.turbo` removed): `pnpm typecheck` 12/12 ✅,
+`pnpm lint` runs with **0 builds** ✅, `pnpm build` clean with no warnings ✅, and deleting
+`routeTree.gen.ts` then re-running `typecheck` hits `FULL TURBO` and restores it (cache-correctness) ✅.
+
+### Deferred — pre-existing debt the new pipeline now surfaces
+
+Not introduced by this work; the pipeline correctly flags it, left for follow-ups:
+- **18 pre-existing Biome lint errors** in app code (`FollowButton.tsx`, `apps/api/tests/setup.ts`,
+  several gRPC handlers, `middleware/auth.ts`).
+- **`@chirp/client-admin` unit test fails** — `auth.test.ts` can't resolve `@tanstack/react-start`
+  (a Vitest config gap: it imports server code Vitest isn't set up to transform). `client-user` passes.
+
+Until these are addressed, CI will report failures on `lint` and `client-admin` `test:unit`.
