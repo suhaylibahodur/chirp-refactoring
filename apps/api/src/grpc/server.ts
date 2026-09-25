@@ -13,6 +13,7 @@ import {
 } from "@chirp/proto";
 import { Server, ServerCredentials } from "@grpc/grpc-js";
 import { adaptService } from "@protobuf-ts/grpc-backend";
+import { assertGrpcJwtSecret } from "../middleware/auth";
 import { logger } from "../observability/logger";
 import { adminHandler } from "./handlers/admin.handler";
 import { authHandler } from "./handlers/auth.handler";
@@ -27,6 +28,9 @@ import { searchHandler } from "./handlers/search.handler";
 import { usersHandler } from "./handlers/users.handler";
 
 export function startGrpcServer(port: number): Promise<Server> {
+	// Fail closed: refuse to start without a properly configured JWT secret.
+	assertGrpcJwtSecret();
+
 	const server = new Server();
 
 	// Register all service handlers

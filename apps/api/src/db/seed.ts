@@ -1,4 +1,4 @@
-import { generateId, hashPassword } from "../services/utils";
+import { generateId, legacyHashPassword } from "../services/utils";
 import { db, schema } from "./index";
 
 const { users, posts, comments, likes, follows } = schema;
@@ -74,9 +74,12 @@ async function seed() {
 		},
 	];
 
-	// Insert users
+	// Insert users.
+	// Seeded with the legacy SHA-256 scheme on purpose: these stand in for the
+	// "existing users we have no plaintext for" and get upgraded to bcrypt on their
+	// first login via the rehash-on-login migration.
 	for (const user of testUsers) {
-		const passwordHash = await hashPassword(user.password);
+		const passwordHash = legacyHashPassword(user.password);
 		await db
 			.insert(users)
 			.values({

@@ -1,5 +1,6 @@
 import { desc, eq, gte, like, or, sql } from "drizzle-orm";
 import { db, schema } from "../db";
+import { attachUserContentCounts } from "./enrichment";
 import { generateId } from "./utils";
 
 const { users, posts, comments, reports, auditLogs } = schema;
@@ -56,28 +57,8 @@ export async function listUsers(options: ListUsersOptions = {}) {
 
 	const result = await query.orderBy(desc(users.createdAt)).limit(limit).offset(offset);
 
-	// Get post and comment counts
-	const usersWithCounts = await Promise.all(
-		result.map(async (user) => {
-			const postCount = await db
-				.select({ count: sql<number>`count(*)` })
-				.from(posts)
-				.where(eq(posts.authorId, user.id))
-				.get();
-
-			const commentCount = await db
-				.select({ count: sql<number>`count(*)` })
-				.from(comments)
-				.where(eq(comments.authorId, user.id))
-				.get();
-
-			return {
-				...user,
-				postCount: postCount?.count || 0,
-				commentCount: commentCount?.count || 0,
-			};
-		}),
-	);
+	// Get post and comment counts (batched)
+	const usersWithCounts = await attachUserContentCounts(result);
 
 	// Get total count
 	const totalResult = await db.select({ count: sql<number>`count(*)` }).from(users).get();
@@ -170,6 +151,12 @@ export async function updateUserRole(userId: string, role: string, adminId: stri
 		throw new Error("Invalid role");
 	}
 
+	// Guardrail: an admin cannot change their own role (prevents accidental
+	// self-lockout and self-escalation via any weaker future guard).
+	if (userId === adminId) {
+		throw new Error("Cannot change your own role");
+	}
+
 	const user = await db.select().from(users).where(eq(users.id, userId)).get();
 
 	if (!user) {
@@ -255,8 +242,10 @@ export async function listReports(options: ListReportsOptions = {}) {
 			reviewedBy: reports.reviewedBy,
 			reviewedAt: reports.reviewedAt,
 			createdAt: reports.createdAt,
+			reporterUsername: users.username,
 		})
 		.from(reports)
+		.leftJoin(users, eq(reports.reporterId, users.id))
 		.$dynamic();
 
 	if (options.statusFilter) {
@@ -271,21 +260,11 @@ export async function listReports(options: ListReportsOptions = {}) {
 
 	const result = await query.orderBy(desc(reports.createdAt)).limit(limit).offset(offset);
 
-	// Get reporter usernames
-	const reportsWithUsernames = await Promise.all(
-		result.map(async (report) => {
-			const reporter = await db
-				.select({ username: users.username })
-				.from(users)
-				.where(eq(users.id, report.reporterId))
-				.get();
-
-			return {
-				...report,
-				reporterUsername: reporter?.username || "Unknown",
-			};
-		}),
-	);
+	// Reporter usernames come from the join; fall back to "Unknown" when missing.
+	const reportsWithUsernames = result.map((report) => ({
+		...report,
+		reporterUsername: report.reporterUsername || "Unknown",
+	}));
 
 	const totalResult = await db.select({ count: sql<number>`count(*)` }).from(reports).get();
 
@@ -407,8 +386,10 @@ export async function getAuditLogs(
 			details: auditLogs.details,
 			ipAddress: auditLogs.ipAddress,
 			createdAt: auditLogs.createdAt,
+			adminUsername: users.username,
 		})
 		.from(auditLogs)
+		.leftJoin(users, eq(auditLogs.adminId, users.id))
 		.$dynamic();
 
 	if (options.adminIdFilter) {
@@ -421,21 +402,11 @@ export async function getAuditLogs(
 
 	const result = await query.orderBy(desc(auditLogs.createdAt)).limit(limit).offset(offset);
 
-	// Get admin usernames
-	const logsWithUsernames = await Promise.all(
-		result.map(async (log) => {
-			const admin = await db
-				.select({ username: users.username })
-				.from(users)
-				.where(eq(users.id, log.adminId))
-				.get();
-
-			return {
-				...log,
-				adminUsername: admin?.username || "Unknown",
-			};
-		}),
-	);
+	// Admin usernames come from the join; fall back to "Unknown" when missing.
+	const logsWithUsernames = result.map((log) => ({
+		...log,
+		adminUsername: log.adminUsername || "Unknown",
+	}));
 
 	const totalResult = await db.select({ count: sql<number>`count(*)` }).from(auditLogs).get();
 

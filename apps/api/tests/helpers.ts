@@ -1,7 +1,7 @@
 import { db, schema } from "../src/db";
-import { generateId, hashPassword } from "../src/services/utils";
+import { generateId, hashPassword, legacyHashPassword } from "../src/services/utils";
 
-const { users, posts, comments, likes, follows } = schema;
+const { users, posts, comments, likes, follows, bookmarks } = schema;
 
 export interface TestUser {
 	id: string;
@@ -18,6 +18,8 @@ export async function createTestUser(
 		displayName: string;
 		password: string;
 		role: "user" | "admin" | "moderator";
+		/** When true, store the password using the legacy SHA-256 scheme (for migration tests). */
+		legacyHash: boolean;
 	}> = {},
 ): Promise<TestUser> {
 	const id = generateId();
@@ -27,7 +29,9 @@ export async function createTestUser(
 	const password = overrides.password || "password123";
 	const role = overrides.role || "user";
 
-	const passwordHash = await hashPassword(password);
+	const passwordHash = overrides.legacyHash
+		? legacyHashPassword(password)
+		: await hashPassword(password);
 
 	await db.insert(users).values({
 		id,
@@ -85,6 +89,26 @@ export async function createTestFollow(followerId: string, followingId: string):
 		id,
 		followerId,
 		followingId,
+	});
+	return id;
+}
+
+export async function createTestBookmark(userId: string, postId: string): Promise<string> {
+	const id = generateId();
+	await db.insert(bookmarks).values({
+		id,
+		userId,
+		postId,
+	});
+	return id;
+}
+
+export async function createTestCommentLike(userId: string, commentId: string): Promise<string> {
+	const id = generateId();
+	await db.insert(likes).values({
+		id,
+		userId,
+		commentId,
 	});
 	return id;
 }
