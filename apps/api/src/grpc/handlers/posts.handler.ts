@@ -1,5 +1,7 @@
 import type { IPostsService, PostResponse } from "@chirp/proto";
+import { errorFields } from "../../errors/handler-errors";
 import { validateSessionToken } from "../../middleware/auth";
+import { resolveOptionalAuth } from "../../middleware/optional-auth";
 import {
 	createPost,
 	deletePost,
@@ -9,6 +11,7 @@ import {
 	updatePost,
 } from "../../services/posts.service";
 import { toProtoTimestamp } from "../../services/utils";
+import { wrapHandler } from "../wrap";
 
 function toPostResponse(post: any): PostResponse {
 	return {
@@ -30,7 +33,7 @@ function toPostResponse(post: any): PostResponse {
 	};
 }
 
-export const postsHandler: IPostsService = {
+const postsService: IPostsService = {
 	async createPost(request) {
 		try {
 			const auth = validateSessionToken(request.sessionToken);
@@ -47,22 +50,13 @@ export const postsHandler: IPostsService = {
 			return {
 				success: false,
 				postId: "",
-				error: error instanceof Error ? error.message : "Failed to create post",
+				...errorFields(error, "Failed to create post"),
 			};
 		}
 	},
 
 	async getPost(request) {
-		let userId: string | undefined;
-		if (request.sessionToken) {
-			try {
-				const auth = validateSessionToken(request.sessionToken);
-				userId = auth.userId;
-			} catch {
-				// Ignore invalid token for public access
-			}
-		}
-
+		const userId = resolveOptionalAuth(request.sessionToken);
 		const post = await getPost(request.postId, userId);
 		return toPostResponse(post);
 	},
@@ -80,7 +74,7 @@ export const postsHandler: IPostsService = {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "Failed to update post",
+				...errorFields(error, "Failed to update post"),
 			};
 		}
 	},
@@ -94,21 +88,13 @@ export const postsHandler: IPostsService = {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "Failed to delete post",
+				...errorFields(error, "Failed to delete post"),
 			};
 		}
 	},
 
 	async getPosts(request) {
-		let userId: string | undefined;
-		if (request.sessionToken) {
-			try {
-				const auth = validateSessionToken(request.sessionToken);
-				userId = auth.userId;
-			} catch {
-				// Ignore invalid token for public access
-			}
-		}
+		const userId = resolveOptionalAuth(request.sessionToken);
 
 		const posts = await getPosts({
 			limit: request.pagination?.limit || 20,
@@ -122,15 +108,7 @@ export const postsHandler: IPostsService = {
 	},
 
 	async getUserPosts(request) {
-		let userId: string | undefined;
-		if (request.sessionToken) {
-			try {
-				const auth = validateSessionToken(request.sessionToken);
-				userId = auth.userId;
-			} catch {
-				// Ignore invalid token for public access
-			}
-		}
+		const userId = resolveOptionalAuth(request.sessionToken);
 
 		const posts = await getUserPosts(request.username, userId);
 
@@ -139,3 +117,5 @@ export const postsHandler: IPostsService = {
 		};
 	},
 };
+
+export const postsHandler = wrapHandler("PostsService", postsService);

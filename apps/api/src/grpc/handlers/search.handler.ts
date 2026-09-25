@@ -1,7 +1,8 @@
 import type { ISearchService, PostResponse } from "@chirp/proto";
-import { validateSessionToken } from "../../middleware/auth";
+import { resolveOptionalAuth } from "../../middleware/optional-auth";
 import { searchPosts, searchUsers } from "../../services/search.service";
 import { toProtoTimestamp } from "../../services/utils";
+import { wrapHandler } from "../wrap";
 
 function toPostResponse(post: any): PostResponse {
 	return {
@@ -23,17 +24,9 @@ function toPostResponse(post: any): PostResponse {
 	};
 }
 
-export const searchHandler: ISearchService = {
+const searchService: ISearchService = {
 	async searchPosts(request) {
-		let userId: string | undefined;
-		if (request.sessionToken) {
-			try {
-				const auth = validateSessionToken(request.sessionToken);
-				userId = auth.userId;
-			} catch {
-				// Ignore invalid token for public access
-			}
-		}
+		const userId = resolveOptionalAuth(request.sessionToken);
 
 		const posts = await searchPosts(request.query, userId);
 
@@ -56,3 +49,5 @@ export const searchHandler: ISearchService = {
 		};
 	},
 };
+
+export const searchHandler = wrapHandler("SearchService", searchService);

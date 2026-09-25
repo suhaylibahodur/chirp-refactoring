@@ -75,6 +75,7 @@ message BanUserRequest {
 message BanUserResponse {
   bool success = 1;
   optional string error = 2;
+  optional string error_code = 3;
 }
 
 message UnbanUserRequest {
@@ -85,6 +86,7 @@ message UnbanUserRequest {
 message UnbanUserResponse {
   bool success = 1;
   optional string error = 2;
+  optional string error_code = 3;
 }
 
 message UpdateUserRoleRequest {
@@ -96,6 +98,7 @@ message UpdateUserRoleRequest {
 message UpdateUserRoleResponse {
   bool success = 1;
   optional string error = 2;
+  optional string error_code = 3;
 }
 
 message DeleteUserRequest {
@@ -106,6 +109,7 @@ message DeleteUserRequest {
 message DeleteUserResponse {
   bool success = 1;
   optional string error = 2;
+  optional string error_code = 3;
 }
 
 // Content Moderation Messages
@@ -118,6 +122,7 @@ message DeletePostAdminRequest {
 message DeletePostAdminResponse {
   bool success = 1;
   optional string error = 2;
+  optional string error_code = 3;
 }
 
 message DeleteCommentAdminRequest {
@@ -129,6 +134,7 @@ message DeleteCommentAdminRequest {
 message DeleteCommentAdminResponse {
   bool success = 1;
   optional string error = 2;
+  optional string error_code = 3;
 }
 
 // Reports Messages
@@ -173,6 +179,7 @@ message ReviewReportRequest {
 message ReviewReportResponse {
   bool success = 1;
   optional string error = 2;
+  optional string error_code = 3;
 }
 
 // Analytics Messages

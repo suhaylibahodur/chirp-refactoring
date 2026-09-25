@@ -4,6 +4,7 @@ import type {
 	IAdminService,
 	ReportResponse,
 } from "@chirp/proto";
+import { errorFields } from "../../errors/handler-errors";
 import { requireAdmin, validateSessionToken } from "../../middleware/auth";
 import {
 	banUser,
@@ -21,6 +22,7 @@ import {
 	updateUserRole,
 } from "../../services/admin.service";
 import { toProtoTimestamp } from "../../services/utils";
+import { wrapHandler } from "../wrap";
 
 function toAdminUserResponse(user: any): AdminUserResponse {
 	return {
@@ -70,8 +72,10 @@ function toAuditLogResponse(log: any): AuditLogResponse {
 	};
 }
 
-export const adminHandler: IAdminService = {
+const adminService: IAdminService = {
 	async listUsers(request) {
+		// Read methods: auth/authorization failures propagate to the boundary
+		// wrapper, which maps them to UNAUTHENTICATED / PERMISSION_DENIED.
 		const auth = validateSessionToken(request.sessionToken);
 		requireAdmin(auth);
 
@@ -110,7 +114,7 @@ export const adminHandler: IAdminService = {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "Failed to ban user",
+				...errorFields(error, "Failed to ban user"),
 			};
 		}
 	},
@@ -126,7 +130,7 @@ export const adminHandler: IAdminService = {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "Failed to unban user",
+				...errorFields(error, "Failed to unban user"),
 			};
 		}
 	},
@@ -142,7 +146,7 @@ export const adminHandler: IAdminService = {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "Failed to update role",
+				...errorFields(error, "Failed to update role"),
 			};
 		}
 	},
@@ -158,7 +162,7 @@ export const adminHandler: IAdminService = {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "Failed to delete user",
+				...errorFields(error, "Failed to delete user"),
 			};
 		}
 	},
@@ -174,7 +178,7 @@ export const adminHandler: IAdminService = {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "Failed to delete post",
+				...errorFields(error, "Failed to delete post"),
 			};
 		}
 	},
@@ -190,7 +194,7 @@ export const adminHandler: IAdminService = {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "Failed to delete comment",
+				...errorFields(error, "Failed to delete comment"),
 			};
 		}
 	},
@@ -232,7 +236,7 @@ export const adminHandler: IAdminService = {
 		} catch (error) {
 			return {
 				success: false,
-				error: error instanceof Error ? error.message : "Failed to review report",
+				...errorFields(error, "Failed to review report"),
 			};
 		}
 	},
@@ -271,3 +275,5 @@ export const adminHandler: IAdminService = {
 		};
 	},
 };
+
+export const adminHandler = wrapHandler("AdminService", adminService);

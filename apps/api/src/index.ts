@@ -1,6 +1,7 @@
 import { node } from "@elysiajs/node";
 import { Elysia } from "elysia";
 import { startGrpcServer } from "./grpc/server";
+import { logger } from "./observability/logger";
 
 const GRPC_PORT = Number(process.env.GRPC_PORT) || 50051;
 const HTTP_PORT = Number(process.env.HTTP_PORT) || 3001;
@@ -19,19 +20,17 @@ const app = new Elysia({ adapter: node() })
 	}))
 	.listen(HTTP_PORT);
 
-console.log(`🚀 Chirp API started`);
-console.log(`   HTTP server: http://localhost:${HTTP_PORT}`);
-console.log(`   gRPC server: localhost:${GRPC_PORT}`);
+logger.info("Chirp API started", { httpPort: HTTP_PORT, grpcPort: GRPC_PORT });
 
 // Graceful shutdown
 process.on("SIGTERM", () => {
-	console.log("Shutting down...");
+	logger.info("shutting down", { signal: "SIGTERM" });
 	grpcServer.forceShutdown();
 	process.exit(0);
 });
 
 process.on("SIGINT", () => {
-	console.log("Shutting down...");
+	logger.info("shutting down", { signal: "SIGINT" });
 	grpcServer.forceShutdown();
 	process.exit(0);
 });

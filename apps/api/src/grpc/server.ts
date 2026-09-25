@@ -13,6 +13,7 @@ import {
 } from "@chirp/proto";
 import { Server, ServerCredentials } from "@grpc/grpc-js";
 import { adaptService } from "@protobuf-ts/grpc-backend";
+import { logger } from "../observability/logger";
 import { adminHandler } from "./handlers/admin.handler";
 import { authHandler } from "./handlers/auth.handler";
 import { bookmarksHandler } from "./handlers/bookmarks.handler";
@@ -44,11 +45,13 @@ export function startGrpcServer(port: number): Promise<Server> {
 	return new Promise((resolve, reject) => {
 		server.bindAsync(`0.0.0.0:${port}`, ServerCredentials.createInsecure(), (error, boundPort) => {
 			if (error) {
-				console.error("Failed to bind gRPC server:", error);
+				logger.error("failed to bind gRPC server", {
+					error: { name: error.name, message: error.message, stack: error.stack },
+				});
 				reject(error);
 				return;
 			}
-			console.log(`   gRPC server bound to port ${boundPort}`);
+			logger.info("gRPC server bound", { port: boundPort });
 			resolve(server);
 		});
 	});
