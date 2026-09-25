@@ -1,8 +1,67 @@
 # Chirp Refactoring Audit
 
-> Per-issue audit of problems found and fixes applied. Each issue owns its own
-> top-level section; append new sections rather than editing existing ones so
-> parallel work merges cleanly.
+> Consolidated per-issue audit of problems found and fixes applied across the whole
+> refactoring assessment. Each issue owns its own top-level section; append new sections
+> rather than editing existing ones so parallel work merges cleanly.
+
+| Issue | Title | Status |
+|---|---|---|
+| 1 | The Credential Problem | Fixed + tested (legacy-path sunset deferred) |
+| 2 | The Query Performance Problem (N+1) | Fixed + tested |
+
+---
+
+## Issue 1 — The Credential Problem
+
+**Date:** 2026-09-25 · **Areas:** `apps/api`, `apps/client-user`, `apps/client-admin`,
+`packages/grpc-client`, `packages/db-schema`
+**Full spec:** [docs/security/issue-1-credential-problem.md](docs/security/issue-1-credential-problem.md)
+_(originally recorded in `docs/security/AUDIT.md`; consolidated here.)_
+
+Two independent vulnerabilities: how credentials are **stored**, and how the client and API
+**establish trust**.
+
+### 1a. Credential storage — Critical
+
+**Found:** `apps/api/src/services/utils.ts` hashed passwords with `sha256(password + "salt")`
+and compared with `===`. Three defects: (1) SHA-256 is a fast hash, not a password KDF, so
+offline brute-force is cheap; (2) the salt is the static shared string `"salt"`, so identical
+passwords collide and one rainbow table cracks everyone; (3) non-constant-time comparison.
+A leaked `users` table can be cracked at scale and fuels credential-stuffing elsewhere.
+
+**Fix:** moved to **bcrypt** (`bcryptjs`, cost 12) with **rehash-on-login incremental
+migration** — no plaintext needed for seeded users. Legacy hashes are detected by prefix
+(bcrypt starts with `$2`; legacy rows are bare hex), verified via the retained SHA-256 path
+with `crypto.timingSafeEqual`, and transparently upgraded to bcrypt on the user's next
+successful login. New registrations use bcrypt directly.
+**Deferred (future):** after a grace period, drain remaining legacy accounts via password-reset
+email / reset-at-login, then delete the SHA-256 path.
+
+### 1b. Trust establishment — Critical
+
+**Found:** client app servers and the API trusted each other via a JWT signed with a **shared
+HMAC secret** that defaulted, silently, to a hardcoded string in source
+(`chirp-grpc-jwt-secret-key-at-least-32-chars`) in `middleware/auth.ts` and both clients'
+`grpc.server.ts`. Anyone with that secret can forge an `admin` token. Worse, the API trusted
+the token's `role` claim verbatim (`validateSessionToken` → `requireAdmin`) instead of checking
+the authoritative `users.role` column. Transport was also `createInsecure()` with client TLS
+gated on `NODE_ENV`.
+
+**Fix (A + B):**
+- **A. Real secret + fail-closed:** removed the hardcoded fallback in all three files, exit at
+  startup if `GRPC_JWT_SECRET` is unset/short, rotate the leaked value, document the env var.
+- **B. Verify role server-side:** `requireAdmin`/`requireSuperAdmin` resolve the real role from
+  the DB by `userId` (JWT proves identity, DB decides authority). Also fixed an exposed
+  authorization bug — `updateUserRole` was gated by `requireAdmin` (moderators pass), letting a
+  moderator self-promote to admin; role changes / user deletion now require `requireSuperAdmin`,
+  all 13 `requireAdmin` call sites were audited into moderator-OK vs admin-only, and a guard was
+  added so an admin cannot change their own role.
+**Out of scope (future):** Option C — asymmetric keys (RS256/ES256) or mTLS with always-on TLS.
+
+### Status
+Implemented with tests (2026-09-25). API test suite passes, including coverage for bcrypt
+hashing, legacy→bcrypt migration on login, JWT-secret fail-closed behaviour, DB-verified role
+checks, and the moderator→admin / self-role-change guards. Dependency added: `bcryptjs`.
 
 ---
 
